@@ -17,10 +17,10 @@ param.delta_h = 1/6; %i.e., rate of recovery.
 param.gamma_h = 1/3; %Intrinsic incubation period of human
 param.gamma_v = 1/8; %Intrinsic incubation period of vector
 param.beta_v = 0.67;
-param.beta_h = makedist('Uniform','Lower', 0.33,'Upper',0.37);
+param.beta_h = makedist('Uniform','Lower', 0.65,'Upper',0.69);
 
 %% data 
-% 
+% [dateindex,daily_temperature, daily_rainfall] = read_tem_foshan("数据/jiangmen7-11.xlsx");
 [dateindex,daily_temperature, daily_rainfall] = read_tem_jiangmen( );
 a14days_rainfall = zeros(size(daily_rainfall));
 num_days = length(daily_rainfall);
@@ -135,19 +135,17 @@ else
     smooth_rate = 3000;
 
     model.ssfun      = @ssfun;
-    options.nsimu    = 10000; 
-    options.adaptint = 2000;
+    options.nsimu    = 1000; 
+    options.adaptint = 200;
     %  {'par2',initial, min, max, pri_mu, pri_sig, targetflag, localflag}
     mcmc_params = {
         {'init_infection', prior_mean_ii, 0.01*prior_mean_ii, 10*prior_mean_ii,prior_mean_ii,prior_sigma_ii};
         {'mu_v_increase1', mu_v_increase_prior1, 1, 10, mu_v_increase_prior1, mu_v_increase_sigma1};
         {'mu_v_increase2', mu_v_increase_prior2, 1, 10, mu_v_increase_prior2, mu_v_increase_sigma2};
+        {'beta_v', 0.67, 0.1, 1.0, 0.67, 0.1}; % 新增：中心值0.67，标准差设为0.2(可调)
+        {'beta_h', 0.67, 0.1, 1.0, 0.67, 0.1};
     };
-    % mcmc_params = {
-    %     {'init_infection', prior_mean_ii, 0.01*prior_mean_ii, 10*prior_mean_ii};
-    %     {'mu_v_increase1', mu_v_increase_prior1, 1, 10, mu_v_increase_prior1};
-    %     {'mu_v_increase2', mu_v_increase_prior2, 1, 10, mu_v_increase_prior2};
-    % };
+
 
     data = struct();
     data.ps_jiangmen = ps_jiangmen;              % 模型配置
@@ -170,8 +168,7 @@ else
     NewInfections = squeeze(run_sims(:,1,:));
     ModelingOutputs = run_sims(:,2:end,:);
 
-    % ModelingOutputs = zeros(TIMELENGHT,7,num_iteration);
-    % NewInfections = zeros(TIMELENGHT,num_iteration);
+   
 end
 %%
 currentDateTime = datetime('now');
@@ -217,7 +214,8 @@ if (true)
         import_infection_c =  param_chain(k,1);
         param_new.mu_v_increase1 = param_chain(k,2);
         param_new.mu_v_increase2 = param_chain(k,3);
-
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_owh(:,:,k) = ModelingOutput;
@@ -234,7 +232,8 @@ if (true)
         import_infection_c =  param_chain(k,1);
         param_new.mu_v_increase1 =  param_chain(k,2);
         param_new.mu_v_increase2 = param_chain(k,3);
-
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_twh(:,:,k) = ModelingOutput;
@@ -254,7 +253,8 @@ if (true)
         import_infection_c        = param_chain(k,1);
         param_new.mu_v_increase1  = param_chain(k,2);
         param_new.mu_v_increase2  = param_chain(k,3);
-    
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_l1w(:,:,k) = ModelingOutput;
@@ -273,7 +273,8 @@ if (true)
         import_infection_c        = param_chain(k,1);
         param_new.mu_v_increase1  = param_chain(k,2);
         param_new.mu_v_increase2  = param_chain(k,3);
-    
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_l2w(:,:,k) = ModelingOutput;
@@ -289,7 +290,8 @@ if (true)
         import_infection_c =  param_chain(k,1);
         param_new.mu_v_increase1 = param_chain(k,2) * 1.5; %% C
         param_new.mu_v_increase2 = param_chain(k,3) * 1.5; %% C
-
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_s15(:,:,k) = ModelingOutput;
@@ -307,7 +309,8 @@ if (true)
         import_infection_c =  param_chain(k,1);
         param_new.mu_v_increase1 = param_chain(k,2) * 1.5; %% C
         param_new.mu_v_increase2 = param_chain(k,3) * 1.5; %% C
-
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_s15_owh(:,:,k) = ModelingOutput;
@@ -322,6 +325,8 @@ if (true)
         import_infection_c       = param_chain(k,1);
         param_new.mu_v_increase1 = param_chain(k,2) * 0.5;   % 0.5×
         param_new.mu_v_increase2 = param_chain(k,3) * 0.5;
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, ~, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,...
                                    daily_temperature,a14days_rainfall,carrying_capacity,param_new);
         ModelingOutputs_s05(:,:,k) = ModelingOutput;
@@ -340,6 +345,8 @@ if (true)
         import_infection_c       = param_chain(k,1);
         param_new.mu_v_increase1 = param_chain(k,2) * 0.5;
         param_new.mu_v_increase2 = param_chain(k,3) * 0.5;
+        param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
+        param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
         [NewInfection, ~, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,...
                                    daily_temperature,a14days_rainfall,carrying_capacity,param_new);
         ModelingOutputs_s05_owh(:,:,k) = ModelingOutput;
@@ -361,6 +368,8 @@ if (true)
     
     for k = 1:num_iteration
         import_infection_c       = param_chain(k,1);   % 用同一条链
+        param_noIntv.beta_v = param_chain(k,4); 
+        param_noIntv.beta_h = param_chain(k,5); 
         [NewInfection, ~, ModelingOutput] = simulate( ...
             ps_jiangmen,dayOfStartDate,import_infection_c, ...
             daily_temperature,a14days_rainfall,carrying_capacity, ...
@@ -948,23 +957,37 @@ name = outProvCities(idx1);
 
 %% ---------- 画图：≥1 例 ----------
 % 2. 预分配颜色（11 条，用原来灰-蓝-青-橙-红循环）
+% color11 = [
+% 
+%     % 126,0,2 ;  
+%           %   红
+%     169,14,16 ;      %   
+%     % 214,34,54;  
+%     237,90,96 ;      %    
+%     246,156,164; 
+%     %254,204,201;%  
+% 
+%     % 189,230,254 ;     %   
+%     142,204,236 ;        %   
+%     56,152,211 ;        %   
+%     %0,112,179;        %  
+%     0,73,146;  
+% 
+%     %0,36,93;
+%     ]/255;            % 蓝
+
 color11 = [
      
-    % 126,0,2 ;  
-          %   红
-    169,14,16 ;      %   
-    % 214,34,54;  
+    126,0,2 ;  
+    
+    169,14,16 ; 
+    
+    214,34,54;  
+    
     237,90,96 ;      %    
     246,156,164; 
-    %254,204,201;%  
+    254,204,201;%  
    
-    % 189,230,254 ;     %   
-    142,204,236 ;        %   
-    56,152,211 ;        %   
-    %0,112,179;        %  
-    0,73,146;  
-      
-    %0,36,93;
     ]/255;            % 蓝
 
 finalCases = zeros(1,numel(idx1));
@@ -1016,7 +1039,7 @@ xticks(tickIdx);
 xticklabels(datestr(tickDates,'dd-mmm'));
 xtickangle(45);
 ylabel('Cumulative imported infections');
-
+title('Cities with cumulative ≥1 case (mean ± 95% CI)');
 
 % 只把均值线放进图例（中文 name11 不再使用）
 % legend(h, name(sortIdx), 'Location','northeastoutside','FontSize',8);
@@ -1148,7 +1171,7 @@ function [dSv, dEv, dIv, dSh, dEh, dIh, dRh, Ihn] = SEI_SEIR_dev(t, Sv, Ev, Iv, 
     gamma_h = gpv(param.gamma_h);
     mu_v = 1./imu_v(TP, param);
     beta_v = gpv(param.beta_v);
-    beta_h = gpv(param.beta_v);
+    beta_h = gpv(param.beta_h);
     infection_rate_v = b(TP,param)*beta_v.*Ih./Nh;
     infection_rate_h = b(TP,param)*beta_h.*Iv./Nh;
     Nv = Sv+ Ev+ Iv;
@@ -1230,7 +1253,8 @@ function loglik_all = ssfun(local_param, data)
     import_infection_c =   local_param(1);
     param.mu_v_increase1 = local_param(2);
     param.mu_v_increase2 = local_param(3);
-
+    param.beta_v = local_param(4); % 新增
+    param.beta_h = local_param(5); % 新增
     [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c, ...
       daily_temperature,a14days_rainfall,carrying_capacity,param);
     
@@ -1259,7 +1283,8 @@ function ObsInfections = f_model(data, local_param)
     import_infection_c =   local_param(1);
     param.mu_v_increase1 = local_param(2);
     param.mu_v_increase2 = local_param(3);
-
+    param.beta_v = local_param(4); % 新增
+    param.beta_h = local_param(5); % 新增
     [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c, ...
       daily_temperature,a14days_rainfall,carrying_capacity,param);
     ObsInfections = cat(2,NewInfection,ModelingOutput);

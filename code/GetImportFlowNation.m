@@ -1,7 +1,7 @@
 function flow_data = GetImportFlowNation(target_city,target_col)
 
 %%
-file_name = "data/flow_20241008_20241014.xlsx";
+file_name = "数据/flow_20241008_20241014.xlsx";
 opts = detectImportOptions(file_name);
 opts.VariableNamingRule = 'preserve';  % 关键设置：保留原始列标题
 data = readtable(file_name, opts);

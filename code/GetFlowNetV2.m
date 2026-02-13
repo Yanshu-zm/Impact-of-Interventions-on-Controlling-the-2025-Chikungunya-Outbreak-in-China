@@ -1,7 +1,7 @@
 function [cities, FlowNet, pss] = GetFlowNetV2()
 
 %%
-file_name = "data/广东与外省地市间人口流动（20250728_0803）.csv";
+file_name = "数据/广东与外省地市间人口流动（20250728_0803）.csv";
 opts = detectImportOptions(file_name);
 opts.VariableNamingRule = 'preserve';  % 关键设置：保留原始列标题
 data = readtable(file_name, opts);

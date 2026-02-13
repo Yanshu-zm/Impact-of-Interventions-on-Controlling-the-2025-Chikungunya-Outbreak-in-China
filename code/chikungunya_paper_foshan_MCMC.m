@@ -20,8 +20,20 @@ param.beta_v = 0.67;
 param.beta_h = makedist('Uniform','Lower', 0.65,'Upper',0.69);
 
 %% data 
-[dateindex,daily_temperature, daily_rainfall] = read_tem_foshan("数据/foshan_weather2.xlsx");
+[dateindex, daily_temperature, daily_rainfall] = read_tem_foshan("数据/foshan_weather2.xlsx");
 
+vector_dataTable = readtable("数据/佛山蚊媒数据.csv", ...
+    'TextType', 'string', ...      % 文本数据以string类型存储，避免编码问题
+    'Delimiter', ',', ...         % 适配你的文件制表符分隔的格式
+    'TextType', 'string', ...
+    'TreatAsEmpty', {'nan'});      % 把文件中的'nan'识别为MATLAB的NaN值
+
+BI_Row = table2array(vector_dataTable(1, 2:end));
+ADI_Row = table2array(vector_dataTable(4, 2:end)); 
+vec_startDate = datetime(2025, 7, 9);
+deltas = compute_delta(BI_Row, 1, 3);
+deltas = [[nan,nan,nan] ,deltas', [nan,nan,nan]];
+%%
 a14days_rainfall = zeros(size(daily_rainfall));
 num_days = length(daily_rainfall);
 
@@ -55,7 +67,8 @@ if strcmp(source_city, '佛山')
     start_day = 1
     startDate = datetime(2025, 7, start_day);
     dayOfStartDate = datenum(2025, 7, start_day) - datenum(2025, 7, 1) + 1;
-    
+    dayOfVectorStartDate = days(vec_startDate - startDate + 1);
+
     param.infection_rate_decline_begin1 = datenum(2025, 7, 23) - datenum(2025, 7, 1) + 1;
     param.infection_rate_decline_begin2 = datenum(2025, 7, 29) - datenum(2025, 7, 1) + 1;
     mu_v_increase_prior1 = 2;
@@ -66,9 +79,11 @@ if strcmp(source_city, '佛山')
     prior_mean = 4000;
     prior_sigma = 1000;
     smooth_rate = 3000;
+    adi_smooth_rate = 10;
+    bi_smooth_rate = 10;
 end
 
-param.mu_v_ratio = 2; %%% Setting tuning for simulations
+param.mu_v_ratio = 1; %%% Setting tuning for simulations
 EPS = 1e-6;
 use_mc = false;
 TIMELENGHT = length(dateindex);
@@ -130,6 +145,8 @@ else
         {'mu_v_increase2', mu_v_increase_prior2, 1, 10, mu_v_increase_prior2, mu_v_increase_sigma2};
         {'beta_v', 0.67, 0.1, 1.0, 0.67, 0.1}; % 新增：中心值0.67，标准差设为0.2(可调)
         {'beta_h', 0.67, 0.1, 1.0, 0.67, 0.1};
+        {'adi_scale', 1, 0.01, 10.0}; % for loglik
+        {'bi_scale', 1, 0.01, 10.0};
     };
 
     data = struct();
@@ -142,6 +159,12 @@ else
     data.dayofLocalObs = dayofLocalObs;           % 本地观测起始索引
     data.local_infection = local_infection;       % 本地感染观测值
     data.smooth_rate = smooth_rate;               % 平滑系数
+    data.adi_smooth_rate = adi_smooth_rate; 
+    data.bi_smooth_rate = bi_smooth_rate;
+    data.dayOfVectorStartDate = dayOfVectorStartDate;
+    data.ADI = ADI_Row;
+    data.BI = BI_Row;
+    data.deltas = deltas;
 
     [res,chain] = mcmcrun(model,data,mcmc_params,options);
     param_chain = chain;
@@ -185,7 +208,7 @@ if (true)
     saveas(f, strcat(export_file_name, ".fig"));
     exportgraphics(f,strcat(export_file_name, ".pdf"));
 end
-
+stophere
 %% Simulations
 TIMELENGHT = 153;
 if (true)
@@ -1226,21 +1249,33 @@ function loglik_all = ssfun(local_param, data)
     carrying_capacity = data.carrying_capacity;   
     local_infection = data.local_infection;
     smooth_rate = data.smooth_rate; 
+    adi_smooth_rate = data.adi_smooth_rate;
+    bi_smooth_rate = data.bi_smooth_rate;
+
     dayOfStartDate = data.dayOfStartDate;
+    dayOfVectorStartDate = data.dayOfVectorStartDate;
+    ADI = data.ADI;
+    deltas = data.deltas;
 
     import_infection_c =   local_param(1);
     param.mu_v_increase1 = local_param(2);
     param.mu_v_increase2 = local_param(3);
     param.beta_v = local_param(4); % 新增
     param.beta_h = local_param(5); % 新增
-    
+    adi_scale = local_param(6);
+    bi_scale = local_param(7);
+
     [NewInfection, R0_array, ModelingOutput] = simulate(ps_foshan,dayOfStartDate,import_infection_c, ...
       daily_temperature,a14days_rainfall,carrying_capacity,param);
     loglik_all = sum((NewInfection(dayofLocalObs:dayofLocalObs+length(local_infection)-1) - local_infection').^2)/length(local_infection) / smooth_rate;
+    vec_pop = sum(ModelingOutput(:,1:3),2)/ps_foshan;
+    loglik_all = loglik_all + sum((vec_pop(dayOfVectorStartDate:dayOfVectorStartDate+length(ADI)-1) - adi_scale * ADI').^2,"omitnan")/length(ADI) / adi_smooth_rate;
+    vec_pop_ratio = vec_pop(2:end)./ vec_pop(1:end-1);
+    loglik_all = loglik_all + sum((vec_pop_ratio(dayOfVectorStartDate:dayOfVectorStartDate+length(deltas)-1) - exp(bi_scale * deltas')).^2,"omitnan")/length(deltas) / bi_smooth_rate;
     % important: is -loglik 
     assert(isscalar(loglik_all))
 end
-
+    
 function ObsInfections = f_model(data, local_param)
     param = data.param;
     dayofLocalObs = data.dayofLocalObs;
@@ -1264,3 +1299,59 @@ function ObsInfections = f_model(data, local_param)
 end
 
 
+function delta = compute_delta(BI, A, tau)
+    % COMPUTE_DELTA 从BI序列计算delta(t)
+    %   delta = COMPUTE_DELTA(BI, A) 使用默认tau=3计算delta
+    %   delta = COMPUTE_DELTA(BI, A, tau) 使用指定tau计算delta
+    %
+    % 输入:
+    %   BI  - 一维数组，按时间顺序排列的BI值，允许NaN（缺失值）
+    %   A   - 缩放参数，标量
+    %   tau - 时间窗口参数，默认3
+    %
+    % 输出:
+    %   delta - 一维数组，对应每个有效t的delta(t)值
+    
+    if nargin < 3
+        tau = 3; % 按题目默认tau=3
+    end
+    if nargin < 2
+        error('必须提供缩放参数A');
+    end
+    
+    N = length(BI);
+    t_start = tau + 1;          % 最小t，确保t-tau >=1
+    t_end   = N - tau;          % 最大t，确保t+tau <= N
+    
+    if t_start > t_end
+        error('BI序列长度不足！需要至少 %d 个数据点，当前只有 %d 个。', 2*tau + 1, N);
+    end
+    
+    % 初始化输出
+    num_t = t_end - t_start + 1;
+    delta = zeros(num_t, 1);
+    
+    for t_idx = 1:num_t
+        t = t_start + t_idx - 1; % 当前t在BI数组中的索引
+        
+        % 计算分子: sum_{i=1}^tau [sum_{k=t}^{t+i} BI(k)]
+        numerator = 0;
+        for i = 1:tau
+            numerator = numerator + nansum(BI(t : t+i)); % 用nansum忽略NaN
+        end
+        
+        % 计算分母: sum_{i=1}^tau [sum_{k=t-i}^{t-1} BI(k)]
+        denominator = 0;
+        for i = 1:tau
+            denominator = denominator + nansum(BI(t - i : t - 1));
+        end
+        
+        % 计算delta，避免分母为0
+        if denominator == 0
+            delta(t_idx) = NaN;
+            warning('分母为0，t=%d处的delta设为NaN', t);
+        else
+            delta(t_idx) = -A * log(numerator / denominator);
+        end
+    end
+end

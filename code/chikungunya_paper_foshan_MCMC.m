@@ -20,9 +20,9 @@ param.beta_v = 0.67;
 param.beta_h = makedist('Uniform','Lower', 0.65,'Upper',0.69);
 
 %% data 
-[dateindex, daily_temperature, daily_rainfall] = read_tem_foshan("数据/foshan_weather2.xlsx");
+[dateindex, daily_temperature, daily_rainfall] = read_tem_foshan("data/foshan_weather2.xlsx");
 
-vector_dataTable = readtable("数据/佛山蚊媒数据.csv", ...
+vector_dataTable = readtable("data/佛山蚊媒数据.csv", ...
     'TextType', 'string', ...      % 文本数据以string类型存储，避免编码问题
     'Delimiter', ',', ...         % 适配你的文件制表符分隔的格式
     'TextType', 'string', ...
@@ -54,9 +54,9 @@ for i = 1:num_days
 end
 a14days_rainfall = a14days_rainfall(1:num_days);
 
-z = 0.28; %%%
+z = 0.02; %%%
 Rmin = 1;
-Rmax = 123;
+Rmax = 280;
 carrying_capacity = carrying_capacity_Tpart(daily_temperature, param) .* ...
     carrying_capacity_Rpart_Briere(a14days_rainfall, Rmin, Rmax, z);
 carrying_capacity = smoothdata(carrying_capacity, 'movmean', 3);
@@ -82,7 +82,7 @@ if strcmp(source_city, '佛山')
 
     param.infection_rate_decline_begin1 = datenum(2025, 7, 23) - datenum(2025, 7, 1) + 1;
     param.infection_rate_decline_begin2 = datenum(2025, 7, 29) - datenum(2025, 7, 1) + 1;
-    param.carrying_capacity_decline_begin = datenum(2025, 7, 16) - datenum(2025, 7, 1) + 1;
+    param.carrying_capacity_decline_begin = datenum(2025, 7, 31) - datenum(2025, 7, 1) + 1;
     param.quarantine_start = datenum(2025, 7, 29) - datenum(2025, 7, 1) + 1;
 
     mu_v_increase_prior1 = 2;
@@ -95,6 +95,18 @@ if strcmp(source_city, '佛山')
     smooth_rate = 3000;
 end
 
+figure('Name', 'A14RF-CC');
+yyaxis left;plot(a14days_rainfall);ylabel("Rainfall");
+yyaxis right;plot(carrying_capacity);ylabel("Carrying capacity");
+
+figure('Name', 'A14RF-ADI');
+yyaxis left;plot(a14days_rainfall);ylabel("Rainfall");
+yyaxis right;scatter(vector_obs_dateindex,ADI_Row);ylabel("ADI");
+
+figure('Name', 'CC-ADI');
+yyaxis left;plot(carrying_capacity);ylabel("Carrying capacity");
+yyaxis right;scatter(vector_obs_dateindex,ADI_Row);ylabel("ADI");
+
 param.mu_v_ratio = 1; %%% Setting tuning for simulations
 EPS = 1e-6;
 use_mc = false;
@@ -105,6 +117,7 @@ if (use_mc)
 else
     % MCMC
     model.ssfun      = @ssfun;
+    options.nsimu    = 50000;
     burned_in = 0.2 * options.nsimu;
     % options.method = 'dram';
     %  {'par2',initial, min, max, pri_mu, pri_sig, targetflag, localflag}
@@ -210,12 +223,13 @@ if (true)
     set(f,"Position",[1000,1007,560,230]);
     hold on;
     yyaxis left
-    CI_plot(mean(VecPopulationSize'), prctile(VecPopulationSize',5)  , prctile(VecPopulationSize',95));
+    CI_plot(smoothdata(mean(VecPopulationSize,2)',"movmean",5), prctile(VecPopulationSize',5), prctile(VecPopulationSize',95));
     yyaxis right
     scatter(vector_obs_dateindex, ADI_Row,Marker=".",color='red');
     %legend('Obs', 'Modeling');
     %xlabel('Days');
-    xlim([1,153]);
+    % xlim([1,153]);
+    xlim([21,68])
     ylabel('Vector Population Size');
     
     tickDates =  datetime(2025, 7, 0) + caldays((1:10:153));
@@ -1309,7 +1323,7 @@ function loglik_all = ssfun(local_param, data)
     % loglik_all = loglik_all - 100 * ce_adi;
     vec_pop_ratio = vec_pop(2:end)./ vec_pop(1:end-1);
     gap = vec_pop_ratio(dayOfVectorStartDate:dayOfVectorStartDate+length(deltas_ADI)-1) - exp(deltas_ADI');
-    loglik_all = loglik_all +  0.5 * sum((gap).^2,"omitnan")/length(deltas_ADI);
+    loglik_all = loglik_all +  1 * sum((gap).^2,"omitnan")/length(deltas_ADI);
     % ce_bi = corr(, 'Rows', 'complete');
     % loglik_all = loglik_all - 50 * ce_bi;
     % important: is -loglik 
@@ -1342,59 +1356,3 @@ function ObsInfections = f_model(data, local_param)
 end
 
 
-function delta = compute_delta(BI, A, tau)
-    % COMPUTE_DELTA 从BI序列计算delta(t)
-    %   delta = COMPUTE_DELTA(BI, A) 使用默认tau=3计算delta
-    %   delta = COMPUTE_DELTA(BI, A, tau) 使用指定tau计算delta
-    %
-    % 输入:
-    %   BI  - 一维数组，按时间顺序排列的BI值，允许NaN（缺失值）
-    %   A   - 缩放参数，标量
-    %   tau - 时间窗口参数，默认3
-    %
-    % 输出:
-    %   delta - 一维数组，对应每个有效t的delta(t)值
-    
-    if nargin < 3
-        tau = 3; % 按题目默认tau=3
-    end
-    if nargin < 2
-        error('必须提供缩放参数A');
-    end
-    
-    N = length(BI);
-    t_start = tau + 1;          % 最小t，确保t-tau >=1
-    t_end   = N - tau;          % 最大t，确保t+tau <= N
-    
-    if t_start > t_end
-        error('BI序列长度不足！需要至少 %d 个数据点，当前只有 %d 个。', 2*tau + 1, N);
-    end
-    
-    % 初始化输出
-    num_t = t_end - t_start + 1;
-    delta = zeros(num_t, 1);
-    
-    for t_idx = 1:num_t
-        t = t_start + t_idx - 1; % 当前t在BI数组中的索引
-        
-        % 计算分子: sum_{i=1}^tau [sum_{k=t}^{t+i} BI(k)]
-        numerator = 0;
-        for i = 1:tau
-            numerator = numerator + nansum(BI(t : t+i)); % 用nansum忽略NaN
-        end
-        
-        % 计算分母: sum_{i=1}^tau [sum_{k=t-i}^{t-1} BI(k)]
-        denominator = 0;
-        for i = 1:tau
-            denominator = denominator + nansum(BI(t - i : t - 1));
-        end
-        
-        % 计算delta，避免分母为0
-        if denominator == 0
-            delta(t_idx) = NaN;
-            warning('分母为0，t=%d处的delta设为NaN', t);
-        else
-            delta(t_idx) = -A * log(numerator / denominator);
-        end
-    end
-end

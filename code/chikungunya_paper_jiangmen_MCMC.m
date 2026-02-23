@@ -22,6 +22,12 @@ param.beta_h = makedist('Uniform','Lower', 0.65,'Upper',0.69);
 %% data 
 % [dateindex,daily_temperature, daily_rainfall] = read_tem_foshan("数据/jiangmen7-11.xlsx");
 [dateindex,daily_temperature, daily_rainfall] = read_tem_jiangmen( );
+figure;
+plot(daily_rainfall);
+ylabel('rain fall');
+xticks(1:10:length(daily_rainfall));
+xticklabels(datestr(dateindex(1:10:length(daily_rainfall)), 'mm-dd'));
+
 a14days_rainfall = zeros(size(daily_rainfall));
 num_days = length(daily_rainfall);
 
@@ -32,20 +38,41 @@ for i = 1:num_days
 end
 a14days_rainfall = a14days_rainfall(1:num_days);
 
-z = 0.28; %%%
+z = 0.02; %%%
 Rmin = 1;
-Rmax = 123;
+Rmax = 280;
 carrying_capacity = carrying_capacity_Tpart(daily_temperature, param) .* ...
     carrying_capacity_Rpart_Briere(a14days_rainfall, Rmin, Rmax, z);
 %%carrying_capacity = smooth(carrying_capacity,3);
 carrying_capacity = smoothdata(carrying_capacity, 'movmean', 3);
+
 disp("-----size of carrying_capacity-----");
 disp(size(carrying_capacity));
 assert(size(carrying_capacity,2)==1)
+
+% 江门蚊虫数据
+vector_dataTable = readtable("data/江门蚊媒数据.csv", ...
+    'TextType', 'string', ...      % 文本数据以string类型存储，避免编码问题
+    'Delimiter', ',', ...         % 适配你的文件制表符分隔的格式
+    'TextType', 'string', ...
+    'TreatAsEmpty', {'nan'});      % 把文件中的'nan'识别为MATLAB的NaN值
+
+BI_Row = table2array(vector_dataTable(1, 2:end));
+ADI_Row = table2array(vector_dataTable(4, 2:end)); 
+ADI_Row(1:5) = nan;
+
+% ADI_Row = smoothdata(ADI_Row,"movmean",3);
+vec_startDate = datetime(2025, 9, 14);
+deltas_BI = compute_delta(BI_Row, 0.373, 3);
+deltas_BI = [[nan,nan,nan] ,deltas_BI', [nan,nan,nan]];
+deltas_ADI = compute_delta(ADI_Row, 1, 3);
+deltas_ADI = [[nan,nan,nan] ,deltas_ADI', [nan,nan,nan]];
+
+ADI_Row = smoothdata(ADI_Row,"movmean",5);
 %% running disease model in foshan/ sources
 source_city = '江门';
 if strcmp(source_city, '江门')
-    daily_case = readtable('数据/jiangmen_Daily_cases.xlsx',VariableNamingRule='preserve');
+    daily_case = readtable('data/jiangmen_Daily_cases.xlsx',VariableNamingRule='preserve');
     if ~isa(daily_case.Date, 'datetime')
         daily_case.Date = datetime(daily_case.Date);  % 自动解析日期格式
     end
@@ -61,68 +88,31 @@ if strcmp(source_city, '江门')
     TIMELENGHT = length(dateindex);
     param.infection_rate_decline_begin1 = days(datetime(2025, 9, 19) - datetime(2025, 9, 1)) + 1;
     param.infection_rate_decline_begin2 = days(datetime(2025, 10, 6) - datetime(2025, 9, 1)) + 1;
+    
+    % 蚊虫数据
+    dayOfVectorStartDate = days(vec_startDate - startDate + 1);
+    vector_obs_dateindex = (dayOfVectorStartDate:dayOfVectorStartDate+length(BI_Row)-1);
+    param.carrying_capacity_decline_begin = datenum(2025, 10, 6) - datenum(2025, 9, 1) + 1;
+    param.quarantine_start = datenum(2025, 10, 6) - datenum(2025, 9, 1) + 1;
 end
+%%
+figure('Name', 'A14RF-CC');
+yyaxis left;plot(a14days_rainfall);ylabel("Rainfall");
+yyaxis right;plot(carrying_capacity);ylabel("Carrying capacity");
 
+figure('Name', 'A14RF-ADI');
+yyaxis left;plot(a14days_rainfall);ylabel("Rainfall");
+yyaxis right;scatter(vector_obs_dateindex,ADI_Row);ylabel("ADI");
+
+figure('Name', 'CC-ADI');
+yyaxis left;plot(carrying_capacity);ylabel("Carrying capacity");
+yyaxis right;scatter(vector_obs_dateindex,ADI_Row);ylabel("ADI");
+%%
 param.mu_v_ratio = 1;
 EPS = 1e-6;
 use_mc = false;
 if (use_mc)
-    % MC
-    num_iteration = 1e3;
-    param_chain = zeros(num_iteration,3); % init_infection, infection_rate_decline1, infection_rate_decline2
-    TIMELENGHT = length(dateindex);
-
-    mu_v_increase_prior1 = 4;
-    mu_v_increase_sigma1 = 10;
-    mu_v_increase_prior2 = 8;
-    mu_v_increase_sigma2 = 10;
-    smooth_rate = 6000;
-    prior_mean_ii = 4000;
-    prior_sigma_ii = 1000;
-    
-    TIMELENGHT = 153;
-    pre_log_lik = -inf;
-    acc_rate = 0;
-    ModelingOutputs = zeros(TIMELENGHT,7,num_iteration);
-    NewInfections = zeros(TIMELENGHT,num_iteration);
-    pre_MInfections = zeros(TIMELENGHT,7);
-    pre_NewINfection = zeros(TIMELENGHT,1);
-    f = waitbar(0, 'Starting');
-
-    for k = 1 : num_iteration
-        waitbar(k/num_iteration, f, sprintf('Progress: %d %%', floor(k/num_iteration*100)));
-        import_infection_c = max(1,normrnd(prior_mean_ii/param.sym_ratio, prior_sigma_ii));
-        mu_v_increase1 = max(0.00001,normrnd(mu_v_increase_prior1, mu_v_increase_sigma1));
-        param.mu_v_increase1 = mu_v_increase1;
-        
-        mu_v_increase2 = max(0.00001,normrnd(mu_v_increase_prior2, mu_v_increase_sigma2));
-        param.mu_v_increase2 = mu_v_increase2;
-
-        [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity,param);
-        log_lik = - sum((NewInfection(dayofLocalObs:dayofLocalObs+length(local_infection)-1) - local_infection').^2)/length(local_infection) / smooth_rate;
-        assert(isscalar(log_lik),"error_size_loglik")
-        sample_rate = rand();
-        % disp(strcat(num2str(k),':','pre_log_lik',num2str(pre_log_lik),';log_lik:',num2str(log_lik),'----',num2str(exp(log_lik - pre_log_lik))))
-        if sample_rate < exp(log_lik - pre_log_lik) % NewInfection(dayOfYear)>0 &&
-            pre_log_lik = log_lik;
-            acc_rate = acc_rate+1;
-            ModelingOutputs(:,:,k) = ModelingOutput;
-            NewInfections(:,k) = NewInfection;
-            pre_MInfections = ModelingOutput;
-            pre_NewINfection = NewInfection;
-            param_chain(k,:) = [import_infection_c, param.mu_v_increase1, param.mu_v_increase2];
-        else
-            ModelingOutputs(:,:,k) = pre_MInfections;
-            NewInfections(:,k) = pre_NewINfection;
-            param_chain(k,:) =  param_chain(k-1,:);
-        end
-    end
-    close(f);
-   
-    disp(mean(param_chain(:,1),1))
-    disp(mean(param_chain(:,2:3),1))
-
-    acc_rate
+    % DEPRECATED
 else
     % MCMC
     mu_v_increase_prior1 = 4;
@@ -135,8 +125,9 @@ else
     smooth_rate = 3000;
 
     model.ssfun      = @ssfun;
-    options.nsimu    = 1000; 
-    options.adaptint = 200;
+    options.nsimu    = 5000; 
+    % options.adaptint = 200;
+    burned_in = 0.2 * options.nsimu;
     %  {'par2',initial, min, max, pri_mu, pri_sig, targetflag, localflag}
     mcmc_params = {
         {'init_infection', prior_mean_ii, 0.01*prior_mean_ii, 10*prior_mean_ii,prior_mean_ii,prior_sigma_ii};
@@ -144,6 +135,8 @@ else
         {'mu_v_increase2', mu_v_increase_prior2, 1, 10, mu_v_increase_prior2, mu_v_increase_sigma2};
         {'beta_v', 0.67, 0.1, 1.0, 0.67, 0.1}; % 新增：中心值0.67，标准差设为0.2(可调)
         {'beta_h', 0.67, 0.1, 1.0, 0.67, 0.1};
+        {'carrying_capacity_reduced_rate', 0.5, 0.01, 1,0.5,0.2};
+        {'infection_period_reduce', 1, 0.01, 1.1,0.5,0.2};
     };
 
 
@@ -157,18 +150,32 @@ else
     data.dayofLocalObs = dayofLocalObs;           % 本地观测起始索引
     data.local_infection = local_infection;       % 本地感染观测值
     data.smooth_rate = smooth_rate;               % 平滑系数
+    data.dayOfVectorStartDate = dayOfVectorStartDate;
+    data.ADI = ADI_Row;
+    data.BI = BI_Row;
+    data.deltas = deltas_BI;
+    data.deltas_ADI = deltas_ADI;
+
     [res,chain] = mcmcrun(model,data,mcmc_params,options);
     param_chain = chain;
     figure(1); clf; mcmcplot(chain);
+    if (true) % check convergence
+        burned_chain = param_chain(burned_in:end,:);
+        figure('Name', 'Density Plot'); clf; mcmcplot(burned_chain, [], res, 'hist');
+        % 5. 统计诊断指标 (Statistical Diagnostics)
+        % --- 5.1 基本统计量 (ESS, MC Error) ---
+        fprintf('\n--- 链 1 的统计汇总 ---\n');
+        chainstats(burned_chain, res);
+    end
+
     %%
     num_iteration = options.nsimu;
-    out = mcmcpred(res,chain(options.adaptint:end,:),[],data,@f_model,num_iteration); %
+    out = mcmcpred(res,chain(burned_in:end,:),[],data,@f_model,num_iteration/10); %
     run_sims = out.ysaveout{1,1}{1}; % niter, time, nstates
     run_sims = permute(run_sims,[2,3,1]); % to (TIMELENGHT,7,num_iteration);
     NewInfections = squeeze(run_sims(:,1,:));
     ModelingOutputs = run_sims(:,2:end,:);
-
-   
+    VecPopulationSize = squeeze(sum(ModelingOutputs(:,1:3,:),2));
 end
 %%
 currentDateTime = datetime('now');
@@ -200,6 +207,27 @@ if (true)
     saveas(f, strcat(export_file_name, ".fig"));
     exportgraphics(f,strcat(export_file_name, ".pdf"));
 end
+%% Vec Pop Fitting
+if (true)
+    f = figure();
+    set(f,"Position",[1000,1007,560,230]);
+    hold on;
+    yyaxis left
+    CI_plot(mean(VecPopulationSize'), prctile(VecPopulationSize',5)  , prctile(VecPopulationSize',95));
+    yyaxis right
+    scatter(vector_obs_dateindex,ADI_Row,Marker=".",color='red');
+    %legend('Obs', 'Modeling');
+    %xlabel('Days');
+    xlim([1,153]);
+    ylabel('Vector Population Size');
+
+    tickDates =  datetime(2025, 9, 0) + caldays((1:10:153));
+    xticks((1:10:153))
+    xticklabels(datestr(tickDates, 'mm-dd'));
+    xtickangle(45);
+    xlim([14,153])
+end
+stophere
 
 %% Simulations
 if (true)
@@ -1175,6 +1203,13 @@ function [dSv, dEv, dIv, dSh, dEh, dIh, dRh, Ihn] = SEI_SEIR_dev(t, Sv, Ev, Iv, 
     infection_rate_v = b(TP,param)*beta_v.*Ih./Nh;
     infection_rate_h = b(TP,param)*beta_h.*Iv./Nh;
     Nv = Sv+ Ev+ Iv;
+    if t >= param.carrying_capacity_decline_begin
+        CC = CC * param.carrying_capacity_reduced_rate;
+    end
+    % CC = CC * param.carrying_capacity_reduced_rate;
+    if t >= param.quarantine_start
+        delta_h = delta_h * (1/param.ip_reduce);
+    end
     newVector = EFD(TP, param).*pEA(TP, param).*MDR(TP, param).*imu_v(TP, param).*(1-Nv./(CC*Nh))*Nv;
     newVector = max(newVector, 0);
     mu_v_increase =  param.mu_v_ratio;
@@ -1250,11 +1285,23 @@ function loglik_all = ssfun(local_param, data)
     local_infection = data.local_infection;
     smooth_rate = data.smooth_rate; 
     dayOfStartDate = data.dayOfStartDate;
+    dayOfVectorStartDate = data.dayOfVectorStartDate;
+    ADI = data.ADI;
+    % deltas_BI = data.deltas;
+    deltas_ADI = data.deltas_ADI;
+
     import_infection_c =   local_param(1);
     param.mu_v_increase1 = local_param(2);
     param.mu_v_increase2 = local_param(3);
     param.beta_v = local_param(4); % 新增
     param.beta_h = local_param(5); % 新增
+    param.carrying_capacity_reduced_rate = local_param(6);
+    param.ip_reduce = local_param(7);
+
+    if param.mu_v_increase2 <= param.mu_v_increase1
+        loglik_all = inf;
+        return;
+    end
     [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c, ...
       daily_temperature,a14days_rainfall,carrying_capacity,param);
     
@@ -1264,6 +1311,11 @@ function loglik_all = ssfun(local_param, data)
     assert(dayofLocalObs==20,'dayofLocalObs changed, pls review the sum likelihood')
     sum_loglik = (sum(NewInfection(dayofLocalObs-6:dayofLocalObs-1)) - 1664).^2/5/ smooth_rate;
     loglik_all = loglik_all + 0.1 * sum_loglik;
+    
+    vec_pop = sum(ModelingOutput(:,1:3),2)/ps_jiangmen;
+    vec_pop_ratio = vec_pop(2:end)./ vec_pop(1:end-1);
+    gap = vec_pop_ratio(dayOfVectorStartDate:dayOfVectorStartDate+length(deltas_ADI)-1) - exp(deltas_ADI');
+    loglik_all = loglik_all + 10 * sum((gap).^2,"omitnan")/length(deltas_ADI);
 
     % important: is -loglik 
     assert(isscalar(loglik_all))
@@ -1285,6 +1337,9 @@ function ObsInfections = f_model(data, local_param)
     param.mu_v_increase2 = local_param(3);
     param.beta_v = local_param(4); % 新增
     param.beta_h = local_param(5); % 新增
+    param.carrying_capacity_reduced_rate = local_param(6);
+    param.ip_reduce = local_param(7);
+
     [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c, ...
       daily_temperature,a14days_rainfall,carrying_capacity,param);
     ObsInfections = cat(2,NewInfection,ModelingOutput);

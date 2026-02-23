@@ -31,10 +31,18 @@ vector_dataTable = readtable("数据/佛山蚊媒数据.csv", ...
 BI_Row = table2array(vector_dataTable(1, 2:end));
 ADI_Row = table2array(vector_dataTable(4, 2:end)); 
 ADI_Row(5) = nan;
+
+% 截止至21号前的都mask
+ADI_Row(1:21-9) = nan;
+BI_Row(1:21-9) = nan;
+
 % ADI_Row = smoothdata(ADI_Row,"movmean",3);
 vec_startDate = datetime(2025, 7, 9);
 deltas = compute_delta(BI_Row, 0.373, 3);
 deltas = [[nan,nan,nan] ,deltas', [nan,nan,nan]];
+deltas_ADI = compute_delta(ADI_Row, 1, 3);
+deltas_ADI = [[nan,nan,nan] ,deltas_ADI', [nan,nan,nan]];
+
 %%
 a14days_rainfall = zeros(size(daily_rainfall));
 num_days = length(daily_rainfall);
@@ -75,6 +83,8 @@ if strcmp(source_city, '佛山')
     param.infection_rate_decline_begin1 = datenum(2025, 7, 23) - datenum(2025, 7, 1) + 1;
     param.infection_rate_decline_begin2 = datenum(2025, 7, 29) - datenum(2025, 7, 1) + 1;
     param.carrying_capacity_decline_begin = datenum(2025, 7, 16) - datenum(2025, 7, 1) + 1;
+    param.quarantine_start = datenum(2025, 7, 29) - datenum(2025, 7, 1) + 1;
+
     mu_v_increase_prior1 = 2;
     mu_v_increase_sigma1 = 2;
     mu_v_increase_prior2 = 5;
@@ -95,7 +105,6 @@ if (use_mc)
 else
     % MCMC
     model.ssfun      = @ssfun;
-    options.nsimu    = 50000; 
     burned_in = 0.2 * options.nsimu;
     % options.method = 'dram';
     %  {'par2',initial, min, max, pri_mu, pri_sig, targetflag, localflag}
@@ -105,7 +114,9 @@ else
         {'mu_v_increase2', mu_v_increase_prior2, 1, 10, mu_v_increase_prior2, mu_v_increase_sigma2};
         {'beta_v', 0.67, 0.1, 1.0, 0.67, 0.1}; % 新增：中心值0.67，标准差设为0.2(可调)
         {'beta_h', 0.67, 0.1, 1.0, 0.67, 0.1};
-        {'carrying_capacity_reduced_rate', 0.5, 0.01, 1};
+        {'carrying_capacity_reduced_rate', 0.5, 0.01, 1,0.5,0.2};
+        {'infection_period_reduce', 1, 0.01, 1.1,0.5,0.2};
+        %{'population_reduction', 0.5, 0.01, 1};
     };
 
     data = struct();
@@ -124,7 +135,7 @@ else
     data.ADI = ADI_Row;
     data.BI = BI_Row;
     data.deltas = deltas;
-
+    data.deltas_ADI = deltas_ADI;
     [res,chain] = mcmcrun(model,data,mcmc_params,options);
     param_chain = chain;
     
@@ -133,19 +144,19 @@ else
         burned_chain = param_chain(burned_in:end,:);
         % Check converge
         % --- 轨迹图 (Trace Plot) ---
-        figure('Name', 'Trace Plot'); clf; mcmcplot(chain);
+        % figure('Name', 'Trace Plot'); clf; mcmcplot(chain);
         % --- 密度图 (Density Plot) ---
         figure('Name', 'Density Plot'); clf; mcmcplot(burned_chain, [], res, 'hist');
         % --- 自相关图 (Autocorrelation) ---
-        figure('Name', 'Autocorrelation'); clf; mcmcplot(burned_chain, [], res, 'acf');
-        
-        figure('Name', 'Running Mean');
-        for j = 1:size(burned_chain, 2)
-            subplot(size(burned_chain, 2), 1, j);
-            rm = cumsum(burned_chain(:,j)) ./ (1:size(burned_chain, 1))';
-            plot((burned_in:options.nsimu),rm);
-            title(['Running Mean of ', res.names{j}]);
-        end
+        % figure('Name', 'Autocorrelation'); clf; mcmcplot(burned_chain, [], res, 'acf');
+        % 
+        % figure('Name', 'Running Mean');
+        % for j = 1:size(burned_chain, 2)
+        %     subplot(size(burned_chain, 2), 1, j);
+        %     rm = cumsum(burned_chain(:,j)) ./ (1:size(burned_chain, 1))';
+        %     plot((burned_in:options.nsimu),rm);
+        %     title(['Running Mean of ', res.names{j}]);
+        % end
 
         % 5. 统计诊断指标 (Statistical Diagnostics)
         % --- 5.1 基本统计量 (ESS, MC Error) ---
@@ -1182,9 +1193,14 @@ function [dSv, dEv, dIv, dSh, dEh, dIh, dRh, Ihn] = SEI_SEIR_dev(t, Sv, Ev, Iv, 
     if t >= param.carrying_capacity_decline_begin
         CC = CC * param.carrying_capacity_reduced_rate;
     end
+    % CC = CC * param.carrying_capacity_reduced_rate;
+    if t >= param.quarantine_start
+        delta_h = delta_h * (1/param.ip_reduce);
+    end
     newVector = EFD(TP, param).*pEA(TP, param).*MDR(TP, param).*imu_v(TP, param).*(1-Nv./(CC*Nh))*Nv;
     newVector = max(newVector, 0);
-    mu_v_increase =  param.mu_v_ratio;
+    
+    mu_v_increase = param.mu_v_ratio;
     
     if t >= param.infection_rate_decline_begin1 &&  t <= param.infection_rate_decline_begin2
          mu_v_increase = param.mu_v_increase1;
@@ -1239,6 +1255,12 @@ function [MInfections, R0_array,ModelingOutput] = simulate(ps,dayOfYear,import_i
             RF = a14days_rainfall(t);
             CC = carrying_capacity(t)+EPS;
             
+            % if t == param.carrying_capacity_decline_begin
+            %     Sv = Sv  * param.population_reduction;
+            %     Ev = Ev  * param.population_reduction;
+            %     Iv = Iv  * param.population_reduction;
+            % end
+
             [Sv, Ev, Iv, Sh, Eh, Ih, Rh, Ihn] = SEI_SEIR(t, Sv, Ev, Iv, Sh, Eh, Ih, Rh, TP, RF, CC, Nv, Nh, param);
             MInfections(t) = Ihn;
             Vpopulations(t) = Sv + Ev + Iv;
@@ -1263,14 +1285,17 @@ function loglik_all = ssfun(local_param, data)
     dayOfStartDate = data.dayOfStartDate;
     dayOfVectorStartDate = data.dayOfVectorStartDate;
     ADI = data.ADI;
-    deltas = data.deltas;
-
+    % deltas_BI = data.deltas;
+    deltas_ADI = data.deltas_ADI;
     import_infection_c =   local_param(1);
     param.mu_v_increase1 = local_param(2);
     param.mu_v_increase2 = local_param(3);
     param.beta_v = local_param(4); % 新增
     param.beta_h = local_param(5); % 新增
     param.carrying_capacity_reduced_rate = local_param(6);
+    param.ip_reduce = local_param(7);
+    %param.population_reduction = local_param(8);
+
     if param.mu_v_increase2 <= param.mu_v_increase1
         loglik_all = inf;
         return;
@@ -1280,11 +1305,13 @@ function loglik_all = ssfun(local_param, data)
     loglik_all = sum((NewInfection(dayofLocalObs:dayofLocalObs+length(local_infection)-1) - local_infection').^2)/length(local_infection) / smooth_rate;
     vec_pop = sum(ModelingOutput(:,1:3),2)/ps_foshan;
     
-    ce_adi = corr(vec_pop(dayOfVectorStartDate:dayOfVectorStartDate+length(ADI)-1), ADI', 'Rows', 'complete');
-    loglik_all = loglik_all - 50 * ce_adi;
+    % ce_adi = corr(vec_pop(dayOfVectorStartDate:dayOfVectorStartDate+length(ADI)-1), ADI', 'Rows', 'complete');
+    % loglik_all = loglik_all - 100 * ce_adi;
     vec_pop_ratio = vec_pop(2:end)./ vec_pop(1:end-1);
-    ce_bi = corr(vec_pop_ratio(dayOfVectorStartDate:dayOfVectorStartDate+length(deltas)-1), exp(deltas'), 'Rows', 'complete');
-    loglik_all = loglik_all - 50 * ce_bi;
+    gap = vec_pop_ratio(dayOfVectorStartDate:dayOfVectorStartDate+length(deltas_ADI)-1) - exp(deltas_ADI');
+    loglik_all = loglik_all +  0.5 * sum((gap).^2,"omitnan")/length(deltas_ADI);
+    % ce_bi = corr(, 'Rows', 'complete');
+    % loglik_all = loglik_all - 50 * ce_bi;
     % important: is -loglik 
     assert(isscalar(loglik_all))
 end
@@ -1306,6 +1333,8 @@ function ObsInfections = f_model(data, local_param)
     param.beta_v = local_param(4); % 新增
     param.beta_h = local_param(5); % 新增
     param.carrying_capacity_reduced_rate = local_param(6);
+    param.ip_reduce = local_param(7);
+    %param.population_reduction = local_param(8);
 
     [NewInfection, R0_array, ModelingOutput] = simulate(ps_foshan,dayOfStartDate,import_infection_c, ...
       daily_temperature,a14days_rainfall,carrying_capacity,param);

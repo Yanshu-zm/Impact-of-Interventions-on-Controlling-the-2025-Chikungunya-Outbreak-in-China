@@ -22,11 +22,6 @@ param.beta_h = makedist('Uniform','Lower', 0.65,'Upper',0.69);
 %% data 
 % [dateindex,daily_temperature, daily_rainfall] = read_tem_foshan("数据/jiangmen7-11.xlsx");
 [dateindex,daily_temperature, daily_rainfall] = read_tem_jiangmen( );
-figure;
-plot(daily_rainfall);
-ylabel('rain fall');
-xticks(1:10:length(daily_rainfall));
-xticklabels(datestr(dateindex(1:10:length(daily_rainfall)), 'mm-dd'));
 
 a14days_rainfall = zeros(size(daily_rainfall));
 num_days = length(daily_rainfall);
@@ -40,7 +35,7 @@ a14days_rainfall = a14days_rainfall(1:num_days);
 
 z = 0.02; %%%
 Rmin = 1;
-Rmax = 280;
+Rmax = 123;
 carrying_capacity = carrying_capacity_Tpart(daily_temperature, param) .* ...
     carrying_capacity_Rpart_Briere(a14days_rainfall, Rmin, Rmax, z);
 %%carrying_capacity = smooth(carrying_capacity,3);
@@ -57,8 +52,9 @@ vector_dataTable = readtable("data/江门蚊媒数据.csv", ...
     'TextType', 'string', ...
     'TreatAsEmpty', {'nan'});      % 把文件中的'nan'识别为MATLAB的NaN值
 
-BI_Row = table2array(vector_dataTable(1, 2:end));
-ADI_Row = table2array(vector_dataTable(4, 2:end)); 
+BI_Row = table2array(vector_dataTable(3, 2:end));
+ADI_Row = table2array(vector_dataTable(6, 2:end)); 
+ADI_Row = ADI_Row + 0.01;
 ADI_Row(1:5) = nan;
 
 % ADI_Row = smoothdata(ADI_Row,"movmean",3);
@@ -81,7 +77,7 @@ if strcmp(source_city, '江门')
     local_infection = daily_case.Cases(daily_case.Date >= data_begin_date, :)';
     dayofLocalObs = datenum(2025, 9, 20) - datenum(2025, 9, 1) + 1;
 
-    start_day = 4;
+    start_day = 1;
     startDate = datetime(2025, 9, start_day)
     local_infection_dateindex = (dayofLocalObs:dayofLocalObs+length(local_infection)-1);
     dayOfStartDate = datenum(2025, 9, start_day) - datenum(2025, 9, 1) + 1;
@@ -92,8 +88,8 @@ if strcmp(source_city, '江门')
     % 蚊虫数据
     dayOfVectorStartDate = days(vec_startDate - startDate + 1);
     vector_obs_dateindex = (dayOfVectorStartDate:dayOfVectorStartDate+length(BI_Row)-1);
-    param.carrying_capacity_decline_begin = datenum(2025, 10, 6) - datenum(2025, 9, 1) + 1;
-    param.quarantine_start = datenum(2025, 10, 6) - datenum(2025, 9, 1) + 1;
+    param.carrying_capacity_decline_begin = datenum(2025, 9, 19) - datenum(2025, 9, 1) + 1;
+    param.quarantine_start = datenum(2025, 9, 20) - datenum(2025, 9, 1) + 1;
 end
 %%
 figure('Name', 'A14RF-CC');
@@ -116,9 +112,9 @@ if (use_mc)
 else
     % MCMC
     mu_v_increase_prior1 = 4;
-    mu_v_increase_sigma1 = 5;
-    mu_v_increase_prior2 = 8;
-    mu_v_increase_sigma2 = 5;
+    mu_v_increase_sigma1 = 2;
+    mu_v_increase_prior2 = 6;
+    mu_v_increase_sigma2 = 2;
 
     prior_mean_ii = 4000;
     prior_sigma_ii = 1000;
@@ -191,7 +187,7 @@ if (true)
     set(f,"Position",[1000,1007,560,230]);
     hold on;
     CI_plot(mean(NewInfections'), prctile(NewInfections',5)  , prctile(NewInfections',95))
-    scatter(local_infection_dateindex, local_infection,Marker=".",color='red');
+    scatter(local_infection_dateindex, smoothdata(local_infection,'movmean',3), Marker=".",color='red');
     %legend('Obs', 'Modeling');
     %xlabel('Days');
     xlim([1,153]);
@@ -1298,10 +1294,10 @@ function loglik_all = ssfun(local_param, data)
     param.carrying_capacity_reduced_rate = local_param(6);
     param.ip_reduce = local_param(7);
 
-    if param.mu_v_increase2 <= param.mu_v_increase1
-        loglik_all = inf;
-        return;
-    end
+    % if param.mu_v_increase2 <= param.mu_v_increase1
+    %     loglik_all = inf;
+    %     return;
+    % end
     [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c, ...
       daily_temperature,a14days_rainfall,carrying_capacity,param);
     
@@ -1312,10 +1308,11 @@ function loglik_all = ssfun(local_param, data)
     sum_loglik = (sum(NewInfection(dayofLocalObs-6:dayofLocalObs-1)) - 1664).^2/5/ smooth_rate;
     loglik_all = loglik_all + 0.1 * sum_loglik;
     
-    vec_pop = sum(ModelingOutput(:,1:3),2)/ps_jiangmen;
+    vec_pop = sum(ModelingOutput(:,1:3),2)/ps_jiangmen + 1e-4;
     vec_pop_ratio = vec_pop(2:end)./ vec_pop(1:end-1);
+    vec_pop_ratio = clip(vec_pop_ratio,0.01,100);
     gap = vec_pop_ratio(dayOfVectorStartDate:dayOfVectorStartDate+length(deltas_ADI)-1) - exp(deltas_ADI');
-    loglik_all = loglik_all + 10 * sum((gap).^2,"omitnan")/length(deltas_ADI);
+    loglik_all = loglik_all + 50 * sum((gap).^2,"omitnan")/length(deltas_ADI);
 
     % important: is -loglik 
     assert(isscalar(loglik_all))

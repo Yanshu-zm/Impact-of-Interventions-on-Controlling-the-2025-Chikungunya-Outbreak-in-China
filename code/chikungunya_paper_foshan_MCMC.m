@@ -36,6 +36,7 @@ ADI_Row(5) = nan;
 ADI_Row(1:21-9) = nan;
 BI_Row(1:21-9) = nan;
 
+ADI_Row = smoothdata(ADI_Row,'movmean',5);
 % ADI_Row = smoothdata(ADI_Row,"movmean",3);
 vec_startDate = datetime(2025, 7, 9);
 deltas = compute_delta(BI_Row, 0.373, 3);
@@ -56,7 +57,7 @@ a14days_rainfall = a14days_rainfall(1:num_days);
 
 z = 0.02; %%%
 Rmin = 1;
-Rmax = 280;
+Rmax = 123;
 carrying_capacity = carrying_capacity_Tpart(daily_temperature, param) .* ...
     carrying_capacity_Rpart_Briere(a14days_rainfall, Rmin, Rmax, z);
 carrying_capacity = smoothdata(carrying_capacity, 'movmean', 3);
@@ -74,7 +75,7 @@ if strcmp(source_city, '佛山')
     local_infection_dateindex = (dayofLocalObs:dayofLocalObs+length(local_infection)-1);
     
     % Simulation从7-start_day开始
-    start_day = 1
+    start_day = 1;
     startDate = datetime(2025, 7, start_day);
     dayOfStartDate = datenum(2025, 7, start_day) - datenum(2025, 7, 1) + 1;
     dayOfVectorStartDate = days(vec_startDate - startDate + 1);
@@ -85,10 +86,6 @@ if strcmp(source_city, '佛山')
     param.carrying_capacity_decline_begin = datenum(2025, 7, 31) - datenum(2025, 7, 1) + 1;
     param.quarantine_start = datenum(2025, 7, 29) - datenum(2025, 7, 1) + 1;
 
-    mu_v_increase_prior1 = 2;
-    mu_v_increase_sigma1 = 2;
-    mu_v_increase_prior2 = 5;
-    mu_v_increase_sigma2 = 2;
 
     prior_mean = 4000;
     prior_sigma = 1000;
@@ -117,14 +114,14 @@ if (use_mc)
 else
     % MCMC
     model.ssfun      = @ssfun;
-    options.nsimu    = 50000;
+    options.nsimu    = 5000;
     burned_in = 0.2 * options.nsimu;
     % options.method = 'dram';
     %  {'par2',initial, min, max, pri_mu, pri_sig, targetflag, localflag}
     mcmc_params = {
         {'init_infection', prior_mean, 0.01*prior_mean, 10*prior_mean,prior_mean,prior_sigma};
-        {'mu_v_increase1', mu_v_increase_prior1, 1, 10, mu_v_increase_prior1, mu_v_increase_sigma1};
-        {'mu_v_increase2', mu_v_increase_prior2, 1, 10, mu_v_increase_prior2, mu_v_increase_sigma2};
+        {'mu_v_increase1', 2, 1, 10, 2, 2};
+        {'mu_v_increase2', 5, 1, 10, 2, 2};
         {'beta_v', 0.67, 0.1, 1.0, 0.67, 0.1}; % 新增：中心值0.67，标准差设为0.2(可调)
         {'beta_h', 0.67, 0.1, 1.0, 0.67, 0.1};
         {'carrying_capacity_reduced_rate', 0.5, 0.01, 1,0.5,0.2};
@@ -223,9 +220,9 @@ if (true)
     set(f,"Position",[1000,1007,560,230]);
     hold on;
     yyaxis left
-    CI_plot(smoothdata(mean(VecPopulationSize,2)',"movmean",5), prctile(VecPopulationSize',5), prctile(VecPopulationSize',95));
+    CI_plot(mean(VecPopulationSize,2)', prctile(VecPopulationSize',5), prctile(VecPopulationSize',95));
     yyaxis right
-    scatter(vector_obs_dateindex, ADI_Row,Marker=".",color='red');
+    scatter(vector_obs_dateindex,ADI_Row,Marker=".",color='red');% smoothdata(ADI_Row,"movmean",5)
     %legend('Obs', 'Modeling');
     %xlabel('Days');
     % xlim([1,153]);
@@ -1201,16 +1198,18 @@ function [dSv, dEv, dIv, dSh, dEh, dIh, dRh, Ihn] = SEI_SEIR_dev(t, Sv, Ev, Iv, 
     mu_v = 1./imu_v(TP, param);
     beta_v = gpv(param.beta_v);
     beta_h = gpv(param.beta_h);
+    % CC = CC * param.carrying_capacity_reduced_rate;
+    if t >= param.quarantine_start
+        delta_h = delta_h * (1/param.ip_reduce)^2;
+    end
+
     infection_rate_v = b(TP,param)*beta_v.*Ih./Nh;
     infection_rate_h = b(TP,param)*beta_h.*Iv./Nh;
     Nv = Sv+ Ev+ Iv;
     if t >= param.carrying_capacity_decline_begin
         CC = CC * param.carrying_capacity_reduced_rate;
     end
-    % CC = CC * param.carrying_capacity_reduced_rate;
-    if t >= param.quarantine_start
-        delta_h = delta_h * (1/param.ip_reduce);
-    end
+
     newVector = EFD(TP, param).*pEA(TP, param).*MDR(TP, param).*imu_v(TP, param).*(1-Nv./(CC*Nh))*Nv;
     newVector = max(newVector, 0);
     
@@ -1251,7 +1250,7 @@ end
 
 function [MInfections, R0_array,ModelingOutput] = simulate(ps,dayOfYear,import_infection,daily_temperature,a14days_rainfall,carrying_capacity,param)
     timelengdth = 153;
-    [Sv, Ev, Iv, Sh, Eh, Ih, Rh, Nv, Nh] = deal(ps*2, 0, 0, ps, 0, 0, 0, ps*2, ps);
+    [Sv, Ev, Iv, Sh, Eh, Ih, Rh, Nv, Nh] = deal(ps*1, 0, 0, ps, 0, 0, 0, ps*1, ps);
     MInfections = zeros(timelengdth,1);
     Vpopulations = zeros(timelengdth,1);
     ModelingOutput = zeros(timelengdth,7);

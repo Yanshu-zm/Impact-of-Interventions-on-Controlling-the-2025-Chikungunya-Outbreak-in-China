@@ -36,7 +36,6 @@ ADI_Row(5) = nan;
 ADI_Row(1:21-9) = nan;
 BI_Row(1:21-9) = nan;
 
-ADI_Row = smoothdata(ADI_Row,'movmean',5);
 % ADI_Row = smoothdata(ADI_Row,"movmean",3);
 vec_startDate = datetime(2025, 7, 9);
 deltas = compute_delta(BI_Row, 0.373, 3);
@@ -57,7 +56,7 @@ a14days_rainfall = a14days_rainfall(1:num_days);
 
 z = 0.02; %%%
 Rmin = 1;
-Rmax = 123;
+Rmax = 280;
 carrying_capacity = carrying_capacity_Tpart(daily_temperature, param) .* ...
     carrying_capacity_Rpart_Briere(a14days_rainfall, Rmin, Rmax, z);
 carrying_capacity = smoothdata(carrying_capacity, 'movmean', 3);
@@ -220,7 +219,8 @@ if (true)
     set(f,"Position",[1000,1007,560,230]);
     hold on;
     yyaxis left
-    CI_plot(mean(VecPopulationSize,2)', prctile(VecPopulationSize',5), prctile(VecPopulationSize',95));
+    % CI_plot(mean(VecPopulationSize,2)', prctile(VecPopulationSize',5), prctile(VecPopulationSize',95));
+    CI_plot(smoothdata(mean(VecPopulationSize,2)',"movmean",5), prctile(VecPopulationSize',5), prctile(VecPopulationSize',95));
     yyaxis right
     scatter(vector_obs_dateindex,ADI_Row,Marker=".",color='red');% smoothdata(ADI_Row,"movmean",5)
     %legend('Obs', 'Modeling');
@@ -1200,7 +1200,7 @@ function [dSv, dEv, dIv, dSh, dEh, dIh, dRh, Ihn] = SEI_SEIR_dev(t, Sv, Ev, Iv, 
     beta_h = gpv(param.beta_h);
     % CC = CC * param.carrying_capacity_reduced_rate;
     if t >= param.quarantine_start
-        delta_h = delta_h * (1/param.ip_reduce)^2;
+        delta_h = delta_h * (1/param.ip_reduce);
     end
 
     infection_rate_v = b(TP,param)*beta_v.*Ih./Nh;
@@ -1250,7 +1250,7 @@ end
 
 function [MInfections, R0_array,ModelingOutput] = simulate(ps,dayOfYear,import_infection,daily_temperature,a14days_rainfall,carrying_capacity,param)
     timelengdth = 153;
-    [Sv, Ev, Iv, Sh, Eh, Ih, Rh, Nv, Nh] = deal(ps*1, 0, 0, ps, 0, 0, 0, ps*1, ps);
+    [Sv, Ev, Iv, Sh, Eh, Ih, Rh, Nv, Nh] = deal(ps*2, 0, 0, ps, 0, 0, 0, ps*2, ps);
     MInfections = zeros(timelengdth,1);
     Vpopulations = zeros(timelengdth,1);
     ModelingOutput = zeros(timelengdth,7);

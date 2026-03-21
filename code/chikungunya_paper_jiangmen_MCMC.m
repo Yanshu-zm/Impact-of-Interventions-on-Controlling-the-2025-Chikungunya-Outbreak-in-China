@@ -166,7 +166,7 @@ else
 
     %%
     num_iteration = options.nsimu;
-    out = mcmcpred(res,chain(burned_in:end,:),[],data,@f_model,num_iteration/10); %
+    out = mcmcpred(res,chain(burned_in:end,:),[],data,@f_model,num_iteration); %
     run_sims = out.ysaveout{1,1}{1}; % niter, time, nstates
     run_sims = permute(run_sims,[2,3,1]); % to (TIMELENGHT,7,num_iteration);
     NewInfections = squeeze(run_sims(:,1,:));
@@ -223,7 +223,6 @@ if (true)
     xtickangle(45);
     xlim([14,153])
 end
-stophere
 
 %% Simulations
 if (true)
@@ -234,12 +233,18 @@ if (true)
     param_new = param;
     param_new.infection_rate_decline_begin1 = param_new.infection_rate_decline_begin1 - 7; %% C
     param_new.infection_rate_decline_begin2 = param_new.infection_rate_decline_begin2 - 7; %% C
+    param_new.carrying_capacity_decline_begin = param_new.carrying_capacity_decline_begin - 7;
+    param_new.quarantine_start = param_new.quarantine_start - 7;
+
     for k = 1 : num_iteration
         import_infection_c =  param_chain(k,1);
         param_new.mu_v_increase1 = param_chain(k,2);
         param_new.mu_v_increase2 = param_chain(k,3);
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6);
+        param_new.ip_reduce = param_chain(k,7);
+
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_owh(:,:,k) = ModelingOutput;
@@ -252,12 +257,18 @@ if (true)
     param_new = param;
     param_new.infection_rate_decline_begin1 = param_new.infection_rate_decline_begin1 - 14; %% C
     param_new.infection_rate_decline_begin2 = param_new.infection_rate_decline_begin2 - 14; %% C
+    param_new.carrying_capacity_decline_begin = param_new.carrying_capacity_decline_begin - 14;
+    param_new.quarantine_start = param_new.quarantine_start - 14;
+
     for k = 1 : num_iteration
         import_infection_c =  param_chain(k,1);
         param_new.mu_v_increase1 =  param_chain(k,2);
         param_new.mu_v_increase2 = param_chain(k,3);
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6);
+        param_new.ip_reduce = param_chain(k,7);
+
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_twh(:,:,k) = ModelingOutput;
@@ -272,13 +283,18 @@ if (true)
    
     param_new.infection_rate_decline_begin1 = param_new.infection_rate_decline_begin1 + 7;  % +7
     param_new.infection_rate_decline_begin2 = param_new.infection_rate_decline_begin2 + 7;
-    
+    param_new.carrying_capacity_decline_begin = param_new.carrying_capacity_decline_begin + 7;
+    param_new.quarantine_start = param_new.quarantine_start + 7;
+
     for k = 1:num_iteration
         import_infection_c        = param_chain(k,1);
         param_new.mu_v_increase1  = param_chain(k,2);
         param_new.mu_v_increase2  = param_chain(k,3);
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6);
+        param_new.ip_reduce = param_chain(k,7);
+
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_l1w(:,:,k) = ModelingOutput;
@@ -292,13 +308,18 @@ if (true)
     param_new = param;
     param_new.infection_rate_decline_begin1 = param_new.infection_rate_decline_begin1 + 14;  % +14
     param_new.infection_rate_decline_begin2 = param_new.infection_rate_decline_begin2 + 14;
-    
+    param_new.carrying_capacity_decline_begin = param_new.carrying_capacity_decline_begin + 14;
+    param_new.quarantine_start = param_new.quarantine_start + 14;
+
     for k = 1:num_iteration
         import_infection_c        = param_chain(k,1);
         param_new.mu_v_increase1  = param_chain(k,2);
         param_new.mu_v_increase2  = param_chain(k,3);
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6);
+        param_new.ip_reduce = param_chain(k,7);
+
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_l2w(:,:,k) = ModelingOutput;
@@ -316,6 +337,9 @@ if (true)
         param_new.mu_v_increase2 = param_chain(k,3) * 1.5; %% C
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6) / 1.5;
+        param_new.ip_reduce = param_chain(k,7) / 1.5;
+
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_s15(:,:,k) = ModelingOutput;
@@ -328,6 +352,8 @@ if (true)
     param_new = param;
     param_new.infection_rate_decline_begin1 = param_new.infection_rate_decline_begin1 - 7; %% C
     param_new.infection_rate_decline_begin2 = param_new.infection_rate_decline_begin2 - 7; %% C
+    param_new.carrying_capacity_decline_begin = param_new.carrying_capacity_decline_begin - 7;
+    param_new.quarantine_start = param_new.quarantine_start - 7;
 
     for k = 1 : num_iteration
         import_infection_c =  param_chain(k,1);
@@ -335,6 +361,9 @@ if (true)
         param_new.mu_v_increase2 = param_chain(k,3) * 1.5; %% C
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6) / 1.5;
+        param_new.ip_reduce = param_chain(k,7) / 1.5;
+
         [NewInfection, R0_array, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,daily_temperature,a14days_rainfall,carrying_capacity, ...
             param_new);
         ModelingOutputs_s15_owh(:,:,k) = ModelingOutput;
@@ -351,6 +380,9 @@ if (true)
         param_new.mu_v_increase2 = param_chain(k,3) * 0.5;
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6) / 0.5;
+        param_new.ip_reduce = param_chain(k,7) / 0.5;
+
         [NewInfection, ~, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,...
                                    daily_temperature,a14days_rainfall,carrying_capacity,param_new);
         ModelingOutputs_s05(:,:,k) = ModelingOutput;
@@ -364,13 +396,18 @@ if (true)
     param_new = param;
     param_new.infection_rate_decline_begin1 = param_new.infection_rate_decline_begin1 + 7;
     param_new.infection_rate_decline_begin2 = param_new.infection_rate_decline_begin2 + 7;
-    
+    param_new.carrying_capacity_decline_begin = param_new.carrying_capacity_decline_begin + 7;
+    param_new.quarantine_start = param_new.quarantine_start + 7;
+
     for k = 1 : num_iteration
         import_infection_c       = param_chain(k,1);
         param_new.mu_v_increase1 = param_chain(k,2) * 0.5;
         param_new.mu_v_increase2 = param_chain(k,3) * 0.5;
         param_new.beta_v = param_chain(k,4); % 关键：从链中提取拟合后的 beta_v
         param_new.beta_h = param_chain(k,5); % 关键：从链中提取拟合后的 beta_h
+        param_new.carrying_capacity_reduced_rate = param_chain(k,6) / 0.5;
+        param_new.ip_reduce = param_chain(k,7) / 0.5;
+
         [NewInfection, ~, ModelingOutput] = simulate(ps_jiangmen,dayOfStartDate,import_infection_c,...
                                    daily_temperature,a14days_rainfall,carrying_capacity,param_new);
         ModelingOutputs_s05_owh(:,:,k) = ModelingOutput;
@@ -385,7 +422,11 @@ if (true)
     param_noIntv.mu_v_increase2 = 0;
     param_noIntv.infection_rate_decline_begin1 = 999;
     param_noIntv.infection_rate_decline_begin2 = 999;
-    
+    param_noIntv.carrying_capacity_reduced_rate = 1;
+    param_noIntv.ip_reduce = 1;
+    param_noIntv.carrying_capacity_decline_begin = 999;
+    param_noIntv.quarantine_start = 999;
+
     % 预分配
     ModelingOutputs_noIntv = zeros(TIMELENGHT,7,num_iteration);
     NewInfections_noIntv   = zeros(TIMELENGHT,num_iteration);
@@ -424,7 +465,8 @@ for i = 2:numel(scenarioCell)
     redTbl.(scen) = [median(pct); prctile(pct,[2.5 97.5])'];
 end
 writetable(redTbl, fullfile(directory_name, ...
-              sprintf('Local_cases_compared_with_baseline_jm.xlsx', currentDateTimeString)));
+              sprintf('SymRate_%.4f_Local_cases_compared_with_baseline_jm_%s.xlsx', param.sym_ratio, currentDateTimeString)));
+stophere;
 
 for i = 2:numel(scenarioCell)
     scen = scenarioCell{i};
